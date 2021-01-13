@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # buck50: Test and measurement firmware for “Blue Pill” STM32F103 development board
 # Copyright (C) 2019,2020 Mark R. Rubin aka "thanks4opensource"
 #
@@ -47,7 +49,7 @@ import tty
 #
 #
 
-VERSION = (0, 9, 1)
+VERSION = (0, 9, 5)
 
 COPYRIGHT = '''%s %d.%d.%d
 Copyright 2020 Mark R. Rubin aka "thanks4opensource"''' \
@@ -242,10 +244,13 @@ def serial_number():
 
 
 def blink_user_led():
+    '''
     Pager()("Blinking device LED, <ENTER> to halt ...",
             immed=True, one_line=True                 )
+    '''
     cmnd_cmd(BLNK_CMD)
-    sys.stdin.readline()
+    safe_input("Blinking device LED, <ENTER> to halt ... ",
+               "blink_user_led"                           )
     cmnd_cmd(HALT_CMD)
 
 
@@ -1398,9 +1403,9 @@ class FileName(object):
         (dir, file) = os.path.split(text)
         if self.__suffix and file.endswith(self.__suffix):
             file = file[:-len(self.__suffix)]
-        names  = os.listdir(None if dir is '' else dir)
+        names  = os.listdir(None if dir == '' else dir)
         names.append('..')
-        if dir is not '' and not dir.endswith('/'):
+        if dir != '' and not dir.endswith('/'):
             dir = dir + '/'
         dirs   = [    '%s%s/' % (dir, name)
                   for name
@@ -1697,34 +1702,6 @@ class I2cSpeed(TimeFreqVal):
     def __str__(self):
         return self.str(self.as_float(), self._error)
     def ccr(self):
-        '''
-        standard mode:
-            36e6 / (0xfff    *  2) =    4395.604395604396
-            36e6 / (  180    *  2) =  100000.0
-            36e6 / (    4    *  2) = 4500000.0
-            36e6 / (   18    *  2) = 1000000.0
-            36e6 / ( 3600    *  2) =    5000.0
-        fast mode, 2:1 duty cycle:
-            36e6 / (0xfff    *  3) =   2930.4029304029305
-            36e6 / (    4    *  3) = 3000000.0
-            36e6 / (  120    *  3) =  100000.0
-            36e6 / (   30    *  3) =  400000.0
-            36e6 / (   12    *  3) = 1000000.0
-            36e6 / ( 2400    *  3) =    5000.0
-        fast mode, 16:9 duty cycle:
-            36e6 / (0xfff    * 25) =     351.64835164835165
-            36e6 / (    1    * 25) = 1440000.0
-            36e6 / (   14.4  * 25) =  100000.0
-            36e6 / (   14    * 25) =  102857.14285714286
-            36e6 / (   15    * 25) =   96000.0
-            36e6 / (    3.6  * 25) =  400000.0
-            36e6 / (    3    * 25) =  480000.0
-            36e6 / (    3    * 25) =  360000.0
-            36e6 / (    1.44 * 25) = 1000000.0
-            36e6 / (    1    * 25) = 1440000.0
-            36e6 / (    2    * 25) =  720000.0
-            36e6 / (  288    * 25) =    5000.0
-        '''
         if i2c_config['flavor'].str() == 'standard':
             return int(round(36e6 * self.__value /  2.0))
         if i2c_config['fast-duty'].str() == '2:1':
@@ -3241,7 +3218,7 @@ def decode_escape(byts):
     # return str(byts)[2:-1]   # all <32 or >127 print as
                                #   \xNM (including newline, etc)
     return ''.join([         chr(byt)
-                        if   byt in range(32, 128)
+                        if   byt in range(32, 127)
                         else ("\\x%02x" % byt)
                     for byt in byts                   ])
 
@@ -4191,6 +4168,9 @@ def upload_digital(samples   ,
                 else:          file.write("0%d\n" % ndx)
         file.close()
 
+        if not upload_config['auto-digital'].val:
+            return
+
         if upload_config['digital-frmt'].val == DigitalFormat.CSV:
             if upload_config['viewer-csv'].val == Viewer.GNUPLOT:
                 commandline  = "gnuplot -e 'set object 1 rectangle from "
@@ -4232,6 +4212,8 @@ def upload_digital(samples   ,
             elif     upload_config['viewer-csv'].val == Viewer.OTHER \
                  and upload_config[ 'other-csv'].val                :
                 commandline = upload_config['other-csv'].val
+            else:
+                return
         # else format is VCD
         elif upload_config['viewer-vcd'].val == Viewer.PULSEVIEW:
             # pulseview allocates 1 byte per tick per channel (??)
@@ -4287,18 +4269,17 @@ def upload_analog(samples     ,
                   filename    ):
     # recompute each time because MCU_HZ might
     #   have been changet by configure['adjust'] action
-    # unknown why off by factor of 2
-    #   seems consistent across sample/hold/adc times
-    FUDGE = 0.5
+    # firmware uses ADCPRE_DIV_6
+    ADCCLK_HZ = CPU_HZ / 6.0
     SAMPLE_MICROSECONDS = {
-        AdcSampHold.T_1_5   : FUDGE * (1.5   + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_7_5   : FUDGE * (7.5   + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_13_5  : FUDGE * (13.5  + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_28_5  : FUDGE * (28.5  + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_41_5  : FUDGE * (41.5  + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_55_5  : FUDGE * (55.5  + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_71_5  : FUDGE * (71.5  + 12.5) * 12 / CPU_HZ,
-        AdcSampHold.T_239_5 : FUDGE * (239.5 + 12.5) * 12 / CPU_HZ,
+        AdcSampHold.T_1_5   : (1.5   + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_7_5   : (7.5   + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_13_5  : (13.5  + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_28_5  : (28.5  + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_41_5  : (41.5  + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_55_5  : (55.5  + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_71_5  : (71.5  + 12.5) / ADCCLK_HZ,
+        AdcSampHold.T_239_5 : (239.5 + 12.5) / ADCCLK_HZ,
     }
 
     trig_chan_name = adc_configs[channel_ndxs & 0x0f]['name'].val
@@ -4353,7 +4334,7 @@ def upload_analog(samples     ,
                     trig_chan_name,
                     trgr_printf   )
         if file:
-            file.write("time,%s" % trig_chan_name)
+            file.write("time,%s\n" % trig_chan_name)
     else: # two channels
         printf =   "%%4d   %s    %s %s   %s %s\n"   \
                  % (time_printf   ,
@@ -4391,7 +4372,10 @@ def upload_analog(samples     ,
                                  ranged_2  )
         if file:
             if num_channels == 1:
-                file.write("%g,%g\n" % (num * tick, ranged_1))
+                file.write("%g,%g\n%g,%g\n" % ( num * tick     ,
+                                                ranged_1       ,
+                                               (num + 1) * tick,
+                                                ranged_2)      )
             else:
                 file.write("%g,%g,%g\n" % (num * tick, ranged_1, ranged_2))
         else:
@@ -4439,7 +4423,6 @@ def upload_analog(samples     ,
         file.close()
         if '%s' in commandline:
             commandline = commandline % filename
-        sys.stdout.write("Viewer commandline:\n%s\n" % commandline)
 
         if upload_config['auto-analog'].val:
             if upload_config['viewer-csv'].val in (Viewer.PULSEVIEW,
@@ -4450,6 +4433,7 @@ def upload_analog(samples     ,
                       "\"auto-analog=enabled\"."                   ,
                       immed=True,one_line=True                   )
                 return
+            sys.stdout.write("Viewer commandline:\n%s\n" % commandline)
             sys.stdout.write("Running above command "
                              "(\"auto-analog=enabled\") ...\n")
             try:
@@ -4485,23 +4469,26 @@ def usb_bridge_stdin(ascii_numeric, end_bytes):
     encoded = None
     while encoded is None:
         if ascii_numeric == AsciiNumeric.ASCII:
-            message = None
-            while message is None:
-                message = safe_input(  "\"%s\" to finish: "
-                                     % decode_escape(end_bytes),
-                                     "usb_bridge_stdin"        )
+            message = safe_input(  "\"%s\" to finish: "
+                                 % decode_escape(end_bytes),
+                                 "usb_bridge_stdin"        )
+            if not message:
+                sys.stdout.write("continuing ...\n")
+                return True
             try:
                 encoded = encode_escape(message)
             except Exception as error:
                 Pager(stream=sys.stderr)("Internal error: %s" % error,
                                          immed=True, one_line=True   )
+                encoded = None
             else:
                 if encoded.find(end_bytes) != -1:
                     has_end = True
         else:  # AsciiNumeric.NUMERIC:
-            message = None
-            while message is None:
-                message = safe_input("\"999\" to finish: ", "usb_bridge_stdin")
+            message = safe_input("\"999\" to finish: ", "usb_bridge_stdin")
+            if not message:
+                sys.stdout.write("continuing ...\n")
+                return True
             if message.startswith('999'):
                 encoded = b'\xff'  # to exit loop, can't be empty or b'\0'
                 has_end = True
@@ -4512,6 +4499,7 @@ def usb_bridge_stdin(ascii_numeric, end_bytes):
                     Pager(stream=sys.stderr)(str(error)   ,
                                              immed=True   ,
                                              one_line=True)
+                    encoded = None
     if has_end:
         os.write(usb_fd, b'\0\0\0\0')
         return False
@@ -4537,15 +4525,13 @@ def usb_bridge_stdin(ascii_numeric, end_bytes):
 def usb_bridge_usb(ascii_numeric):
     length_byte = wait_read(1)
     if length_byte in (WAIT_READ_STDIN, None):
-        if len(length_byte) > 0:
-            Pager(stream=sys.stderr)("Interrupted while waiting "
-                                     "for USB, text ignored")
+        Pager(stream=sys.stderr)("Interrupted while waiting "
+                                 "for USB, text ignored")
         return False
     status_data = wait_read(int(length_byte[0]) + 1)   # +1 for status byte
     if status_data in (WAIT_READ_STDIN, None):
-        if len(status_data) > 0:
-            Pager(stream=sys.stderr)("Interrupted while waiting "
-                                     "for USB, text ignored")
+        Pager(stream=sys.stderr)("Interrupted while waiting "
+                                 "for USB, text ignored")
         return False
     status = int(status_data[0])
     if ascii_numeric == AsciiNumeric.NUMERIC:
@@ -4597,7 +4583,7 @@ def usb_bridge_print(name, data, snoop, periph_status=''):
                    decode_escape(data)    ),
                 immed=True,one_line=True   )
     else:
-        sys.stdout.write(  "%d bytes from %s (%s):\n"
+        sys.stdout.write(  "%d bytes from %s%s:\n"
                          % (len(data), name, periph_status))
         term_width = shutil.get_terminal_size().columns
         # 4+3(index) + 2+1(hex) + 1(ascii) + 4(spaces) + 2(extra, for 80->16)
@@ -4841,7 +4827,7 @@ def i2c_master():
                                            rx_size,
                                            length )
                              + tx_data             )
-            if addr == 0 and rx_size == 0 and len(tx_data) == 0:
+            if addr == 0 and rx_size == 0 and length == 0:
                 return
             response = wait_read(MAX_FULL_USB, None, False)
             if response is WAIT_READ_STDIN:
@@ -4879,7 +4865,7 @@ def i2c_slave():
             if sys.stdin in readers:
                 sys.stdin.readline()  # throw away input
                 while True:
-                    text = safe_input("<rx _max> <tx queue 2hex|3dec|"
+                    text = safe_input("<rx_max> <tx queue 2hex|3dec|"
                                      "1ascii ...> (\"0\" to end): "   ,
                                      "i2c_slave"                      )
                     if not text:
@@ -6634,7 +6620,7 @@ def pre_input_hook():
 #
 #
 
-def main(quiet, acm_name, no_auto_viewer, load_file):
+def main(quiet, acm_name, no_auto_viewer, load_file, halt):
     if not quiet:
         sys.stdout.write(BANNER)
 
@@ -6647,7 +6633,12 @@ def main(quiet, acm_name, no_auto_viewer, load_file):
         else:                             dev_acm = '/dev/tty' + acm_name
 
     usb_connect()
-    firmware_connect(quiet)
+
+    if halt and halt != 'none':
+        if halt[0] in ('usart', 'spi', 'i2c'): cmnd_cmd(0)  # zero-length data
+        else:                                  cmnd_cmd(HALT_CMD)
+    else:
+        firmware_connect(quiet)
 
     if not no_auto_viewer:
         set_viewers(quiet)
@@ -6755,6 +6746,22 @@ def parse_commandline():
                              "\"help xxx ...\" for those commands/"
                              "configurations/parameters.")
 
+    parser.add_argument('--halt',
+                        default='none',
+                        nargs=1,
+                        choices=('monitor',
+                                 'gpio',
+                                 'usart',
+                                 'spi',
+                                 'i2c',
+                                 'numbers'),
+                        help="Experimental. Reset firmware if buck50.py exit "
+                             "while command in progress. Must be done before "
+                             "buck50.py without \"--halt\", and must specify "
+                             "correct command name, else firmware/hardware "
+                             "reset and/or power cycle, and USB re-enumeration "
+                             "required."                                      )
+
     parser.add_argument("acm",
                         nargs='?',
                         default=DEV_ACM,
@@ -6772,4 +6779,4 @@ if __name__ == '__main__':
         sys.stdout.write("%s\n" % COPYRIGHT)
         sys.exit(0)
 
-    main(args.quiet, args.acm, args.no_auto_viewer, args.file)
+    main(args.quiet, args.acm, args.no_auto_viewer, args.file, args.halt)
